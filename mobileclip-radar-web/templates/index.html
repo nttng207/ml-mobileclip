@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RadarCam Web</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <main class="page">
+      <section class="topbar panel">
+        <div>
+          <h1>RadarCam Web</h1>
+          <p class="subtitle">Find objects by natural language using MobileCLIP.</p>
+        </div>
+        <div class="model-pill">Model: {{ model_name }} · Grid: {{ grid_rows }}×{{ grid_cols }}</div>
+      </section>
+
+      {% if startup_error %}
+      <section class="panel error-panel">
+        <strong>Startup error:</strong> {{ startup_error }}
+      </section>
+      {% endif %}
+
+      <section class="controls panel">
+        <label for="queryInput">Query</label>
+        <div class="query-row">
+          <input id="queryInput" type="text" value="{{ query }}" placeholder="black mug" />
+          <button id="applyQueryBtn">Scan</button>
+        </div>
+        <div class="chips">
+          <button class="chip" data-query="black mug">black mug</button>
+          <button class="chip" data-query="blue notebook">blue notebook</button>
+          <button class="chip" data-query="remote control">remote control</button>
+          <button class="chip" data-query="red bottle">red bottle</button>
+        </div>
+      </section>
+
+      <section class="viewer-grid">
+        <div class="video-panel panel">
+          <div class="camera-wrap">
+            <video id="video" autoplay playsinline muted></video>
+            <canvas id="overlay"></canvas>
+          </div>
+        </div>
+
+        <aside class="stats panel">
+          <h2>Status</h2>
+          <dl>
+            <div>
+              <dt>Live query</dt>
+              <dd id="liveQuery">{{ query }}</dd>
+            </div>
+            <div>
+              <dt>Latency</dt>
+              <dd id="latencyMs">–</dd>
+            </div>
+            <div>
+              <dt>Best cell</dt>
+              <dd id="bestCell">–</dd>
+            </div>
+            <div>
+              <dt>Hint</dt>
+              <dd id="hint">Waiting for camera…</dd>
+            </div>
+          </dl>
+          <p class="footnote">
+            This is approximate semantic localization via crop-grid search, not full object detection.
+          </p>
+        </aside>
+      </section>
+    </main>
+
+    <canvas id="captureCanvas" hidden></canvas>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
