@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RecallLens</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <main class="page">
+      <section class="hero panel">
+        <div>
+          <h1>RecallLens</h1>
+          <p class="subtitle">Search your local gallery with natural language, fully local.</p>
+        </div>
+        <div class="hero-badge">MobileCLIP · local only</div>
+      </section>
+
+      {% if startup_error %}
+      <section class="panel error-panel">
+        <strong>Startup error:</strong> {{ startup_error }}
+      </section>
+      {% endif %}
+
+      <section class="panel uploader">
+        <div class="section-head">
+          <div>
+            <h2>Add images</h2>
+            <p>Upload multiple files or a whole folder from your browser.</p>
+          </div>
+          <div id="statusPill" class="status-pill">Waiting…</div>
+        </div>
+
+        <form id="uploadForm" class="upload-form">
+          <div class="pickers">
+            <label class="file-box">
+              <span>Select files</span>
+              <input id="filePicker" type="file" accept="image/*" multiple />
+            </label>
+            <label class="file-box">
+              <span>Select folder</span>
+              <input id="folderPicker" type="file" webkitdirectory directory multiple />
+            </label>
+          </div>
+          <div class="actions">
+            <button id="uploadBtn" type="submit">Upload and index</button>
+          </div>
+          <p id="uploadSummary" class="muted">No files selected yet.</p>
+        </form>
+      </section>
+
+      <section class="panel search-panel">
+        <div class="section-head">
+          <div>
+            <h2>Search</h2>
+            <p>Try prompts like <code>black mug</code>, <code>dog in park</code>, or <code>messy desk</code>.</p>
+          </div>
+        </div>
+
+        <form id="searchForm" class="search-form">
+          <input id="queryInput" type="text" placeholder="black mug on desk" />
+          <input id="topKInput" type="number" min="1" max="{{ max_top_k }}" value="{{ default_top_k }}" />
+          <button type="submit">Search</button>
+        </form>
+
+        <div class="chips">
+          <button class="chip" data-query="black mug">black mug</button>
+          <button class="chip" data-query="dog in park">dog in park</button>
+          <button class="chip" data-query="messy desk">messy desk</button>
+          <button class="chip" data-query="sunset over water">sunset over water</button>
+          <button class="chip" data-query="food on table">food on table</button>
+        </div>
+      </section>
+
+      <section class="panel results-panel">
+        <div class="section-head">
+          <div>
+            <h2>Results</h2>
+            <p id="resultsMeta">No search yet.</p>
+          </div>
+        </div>
+        <div id="resultsGrid" class="results-grid empty-state">
+          <div class="empty-card">Upload some images, then search with text.</div>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="previewDialog" class="preview-dialog">
+      <div class="preview-shell">
+        <button id="closePreviewBtn" class="close-btn" type="button">×</button>
+        <img id="previewImage" alt="Preview" />
+        <div id="previewCaption" class="preview-caption"></div>
+      </div>
+    </dialog>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

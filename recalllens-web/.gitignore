@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+checkpoints/*.pt
+data/*.db
+data/*.npy
+uploads/originals/*
+uploads/thumbs/*
