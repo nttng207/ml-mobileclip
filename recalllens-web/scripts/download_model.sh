@@ -2,11 +2,26 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-mkdir -p "$ROOT_DIR/checkpoints"
+OUT_DIR="$ROOT_DIR/checkpoints/mobileclip"
+mkdir -p "$OUT_DIR"
 
-MODEL_URL="${MODEL_URL:-https://docs-assets.developer.apple.com/ml-research/datasets/mobileclip/mobileclip_s0.pt}"
-OUT_FILE="${OUT_FILE:-$ROOT_DIR/checkpoints/mobileclip_s0.pt}"
+BASE_URL="https://docs-assets.developer.apple.com/ml-research/datasets/mobileclip"
 
-printf 'Downloading %s\n' "$MODEL_URL"
-curl -L "$MODEL_URL" -o "$OUT_FILE"
-printf 'Saved checkpoint to %s\n' "$OUT_FILE"
+MODELS=(
+mobileclip_s0.pt
+mobileclip_s1.pt
+mobileclip_s2.pt
+mobileclip_b.pt
+)
+
+for MODEL in "${MODELS[@]}"; do
+    URL="$BASE_URL/$MODEL"
+    OUT_FILE="$OUT_DIR/$MODEL"
+
+    printf "Downloading %s\n" "$URL"
+    curl -L -C - "$URL" -o "$OUT_FILE"
+
+    printf "Saved to %s\n\n" "$OUT_FILE"
+done
+
+echo "All MobileCLIP models downloaded."

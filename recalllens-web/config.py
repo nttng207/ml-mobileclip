@@ -10,11 +10,11 @@ ORIGINALS_DIR = UPLOADS_DIR / "originals"
 THUMBS_DIR = UPLOADS_DIR / "thumbs"
 STATIC_DIR = BASE_DIR / "static"
 TEMPLATES_DIR = BASE_DIR / "templates"
-CHECKPOINTS_DIR = BASE_DIR / "checkpoints"
+CHECKPOINTS_DIR = BASE_DIR / "checkpoints/mobileclip"
 
-MODEL_NAME = os.getenv("MOBILECLIP_MODEL_NAME", "mobileclip_s0")
+MODEL_NAME = os.getenv("MOBILECLIP_MODEL_NAME", "mobileclip_s2")
 MODEL_PATH = Path(
-    os.getenv("MOBILECLIP_MODEL_PATH", str(CHECKPOINTS_DIR / "mobileclip_s0.pt"))
+    os.getenv("MOBILECLIP_MODEL_PATH", str(CHECKPOINTS_DIR / "mobileclip_s2.pt"))
 )
 
 DB_PATH = DATA_DIR / "metadata.db"

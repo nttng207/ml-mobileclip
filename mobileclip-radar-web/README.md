@@ -55,5 +55,5 @@ uvicorn app:app --reload
 ## 6. Notes:
 
 ```bash
-export PYTHONPATH=/home/forge/ml-mobileclip:$PYTHONPATH
+export PYTHONPATH=/path/to/ml-mobileclip:$PYTHONPATH
 ```
