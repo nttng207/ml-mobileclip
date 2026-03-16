@@ -9,37 +9,43 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import mobileclip
 import numpy as np
 import torch
 from PIL import Image, UnidentifiedImageError
 
-import mobileclip
-
 from config import (
-    DB_PATH,
-    EMBEDDINGS_PATH,
-    MODEL_NAME,
-    MODEL_PATH,
     ORIGINALS_DIR,
     PROMPT_TEMPLATE,
     THUMBS_DIR,
     THUMB_SIZE,
+    DEFAULT_MODEL_NAME,
+    get_available_model_names,
+    get_model_checkpoint_path,
+    get_model_db_path,
+    get_model_embeddings_path,
 )
-from database import count_images, get_image_by_sha1, get_images_by_rows, insert_image, list_recent_images
+from database import count_images, get_image_by_sha1, get_images_by_rows, insert_image, list_recent_images, init_db
 
 SUPPORTED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 
 
 class RecallLensService:
-    def __init__(self) -> None:
-        if not MODEL_PATH.exists():
+    def __init__(self, model_name: str, model_path: Path, db_path: Path, embeddings_path: Path) -> None:
+        if not model_path.exists():
             raise FileNotFoundError(
-                f"Checkpoint not found at {MODEL_PATH}. Run scripts/download_model.sh or set MOBILECLIP_MODEL_PATH."
+                f"Checkpoint not found at {model_path}. Put {model_name}.pt in checkpoints/mobileclip "
+                "or configure MOBILECLIP_MODEL_PATH / MOBILECLIP_AVAILABLE_MODELS."
             )
 
-        self.model_name = MODEL_NAME
-        self.model_path = MODEL_PATH
+        self.model_name = model_name
+        self.model_path = model_path
+        self.db_path = db_path
+        self.embeddings_path = embeddings_path
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        init_db(self.db_path)
+
         self.model, _, self.preprocess = mobileclip.create_model_and_transforms(
             self.model_name,
             pretrained=str(self.model_path),
@@ -50,15 +56,15 @@ class RecallLensService:
         self.embeddings = self._load_embeddings()
 
     def _load_embeddings(self) -> np.ndarray:
-        if EMBEDDINGS_PATH.exists():
-            arr = np.load(EMBEDDINGS_PATH)
+        if self.embeddings_path.exists():
+            arr = np.load(self.embeddings_path)
             if arr.ndim == 1:
                 arr = arr.reshape(1, -1)
             return arr.astype(np.float32)
         return np.zeros((0, 0), dtype=np.float32)
 
     def _save_embeddings(self) -> None:
-        np.save(EMBEDDINGS_PATH, self.embeddings)
+        np.save(self.embeddings_path, self.embeddings)
 
     def _autocast(self):
         if self.device == "cuda":
@@ -93,17 +99,17 @@ class RecallLensService:
 
     def upload_files(self, files: list[dict[str, Any]]) -> dict[str, Any]:
         started = time.perf_counter()
-        indexed = []
-        duplicates = []
-        rejected = []
+        indexed: list[dict[str, Any]] = []
+        duplicates: list[dict[str, Any]] = []
+        rejected: list[dict[str, Any]] = []
 
         for item in files:
             filename = (item.get("filename") or "upload").strip() or "upload"
             content_type = item.get("content_type") or "application/octet-stream"
             raw: bytes = item["bytes"]
-            sha1 = hashlib.sha1(raw).hexdigest()
 
-            existing = get_image_by_sha1(DB_PATH, sha1)
+            sha1 = hashlib.sha1(raw).hexdigest()
+            existing = get_image_by_sha1(self.db_path, sha1)
             if existing:
                 duplicates.append(self._public_record(existing, score=None))
                 continue
@@ -121,22 +127,24 @@ class RecallLensService:
             if suffix not in SUPPORTED_EXTENSIONS:
                 guessed = mimetypes.guess_extension(content_type or "") or ".jpg"
                 suffix = guessed.lower() if guessed else ".jpg"
-                if suffix == ".jpe":
-                    suffix = ".jpg"
-                if suffix not in SUPPORTED_EXTENSIONS:
-                    suffix = ".jpg"
+            if suffix == ".jpe":
+                suffix = ".jpg"
+            if suffix not in SUPPORTED_EXTENSIONS:
+                suffix = ".jpg"
 
             original_name = f"{sha1}{suffix}"
             thumb_name = f"{sha1}.jpg"
             original_abs = ORIGINALS_DIR / original_name
             thumb_abs = THUMBS_DIR / thumb_name
 
-            with open(original_abs, "wb") as fh:
-                fh.write(raw)
+            if not original_abs.exists():
+                with open(original_abs, "wb") as fh:
+                    fh.write(raw)
 
-            thumb = image.copy()
-            thumb.thumbnail(THUMB_SIZE)
-            thumb.save(thumb_abs, format="JPEG", quality=88)
+            if not thumb_abs.exists():
+                thumb = image.copy()
+                thumb.thumbnail(THUMB_SIZE)
+                thumb.save(thumb_abs, format="JPEG", quality=88)
 
             embedding_row = self._append_embedding(self._encode_pil(image))
             added_at = datetime.now(timezone.utc).isoformat()
@@ -151,17 +159,18 @@ class RecallLensService:
                 "added_at": added_at,
                 "embedding_row": embedding_row,
             }
-            image_id = insert_image(DB_PATH, record)
+            image_id = insert_image(self.db_path, record)
             record["id"] = image_id
             indexed.append(self._public_record(record, score=None))
 
         elapsed_ms = (time.perf_counter() - started) * 1000.0
         return {
             "ok": True,
+            "model_name": self.model_name,
             "indexed": indexed,
             "duplicates": duplicates,
             "rejected": rejected,
-            "total_images": count_images(DB_PATH),
+            "total_images": count_images(self.db_path),
             "elapsed_ms": elapsed_ms,
         }
 
@@ -169,9 +178,11 @@ class RecallLensService:
         query = query.strip()
         if not query:
             raise ValueError("Query must not be empty.")
+
         if self.embeddings.size == 0:
             return {
                 "ok": True,
+                "model_name": self.model_name,
                 "query": query,
                 "count": 0,
                 "results": [],
@@ -183,7 +194,7 @@ class RecallLensService:
         scores = self.embeddings @ text_vec
         top_k = max(1, min(int(top_k), len(scores)))
         top_rows = np.argsort(-scores)[:top_k].astype(int).tolist()
-        records = get_images_by_rows(DB_PATH, top_rows)
+        records = get_images_by_rows(self.db_path, top_rows)
 
         results = []
         for row in top_rows:
@@ -195,6 +206,7 @@ class RecallLensService:
         elapsed_ms = (time.perf_counter() - started) * 1000.0
         return {
             "ok": True,
+            "model_name": self.model_name,
             "query": query,
             "count": len(results),
             "results": results,
@@ -207,9 +219,9 @@ class RecallLensService:
             "model_name": self.model_name,
             "model_path": str(self.model_path),
             "device": self.device,
-            "total_images": count_images(DB_PATH),
+            "total_images": count_images(self.db_path),
             "embedding_rows": int(self.embeddings.shape[0]) if self.embeddings.size else 0,
-            "recent": [self._public_record(item, score=None) for item in list_recent_images(DB_PATH, limit=12)],
+            "recent": [self._public_record(item, score=None) for item in list_recent_images(self.db_path, limit=12)],
         }
 
     def _public_record(self, record: dict[str, Any], score: float | None) -> dict[str, Any]:
@@ -222,4 +234,88 @@ class RecallLensService:
             "score": score,
             "image_url": f"/{record['original_relpath']}",
             "thumb_url": f"/{record['thumb_relpath']}",
+        }
+
+
+class RecallLensManager:
+    def __init__(self) -> None:
+        self.available_model_names = get_available_model_names()
+        self.default_model_name = (
+            DEFAULT_MODEL_NAME if DEFAULT_MODEL_NAME in self.available_model_names else self.available_model_names[0]
+        )
+        self.services: dict[str, RecallLensService] = {}
+        self.service_errors: dict[str, str] = {}
+        self.startup_error = None
+
+        if not any(get_model_checkpoint_path(name).exists() for name in self.available_model_names):
+            self.startup_error = (
+                "No MobileCLIP checkpoints found. Put one or more *.pt files in checkpoints/mobileclip "
+                "or set MOBILECLIP_MODEL_PATH / MOBILECLIP_AVAILABLE_MODELS."
+            )
+
+    def resolve_model_name(self, model_name: str | None) -> str:
+        candidate = (model_name or self.default_model_name).strip()
+        if candidate not in self.available_model_names:
+            raise ValueError(f"Unknown model '{candidate}'.")
+        return candidate
+
+    def list_models(self) -> list[dict[str, Any]]:
+        models: list[dict[str, Any]] = []
+        for model_name in self.available_model_names:
+            checkpoint_path = get_model_checkpoint_path(model_name)
+            db_path = get_model_db_path(model_name)
+            models.append(
+                {
+                    "name": model_name,
+                    "checkpoint_path": str(checkpoint_path),
+                    "checkpoint_exists": checkpoint_path.exists(),
+                    "loaded": model_name in self.services,
+                    "ready": checkpoint_path.exists() and model_name not in self.service_errors,
+                    "error": self.service_errors.get(model_name),
+                    "total_images": count_images(db_path) if db_path.exists() else 0,
+                }
+            )
+        return models
+
+    def get_service(self, model_name: str | None = None) -> RecallLensService:
+        selected_model = self.resolve_model_name(model_name)
+        if selected_model in self.services:
+            return self.services[selected_model]
+
+        model_path = get_model_checkpoint_path(selected_model)
+        db_path = get_model_db_path(selected_model)
+        embeddings_path = get_model_embeddings_path(selected_model)
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+
+        try:
+            service = RecallLensService(
+                model_name=selected_model,
+                model_path=model_path,
+                db_path=db_path,
+                embeddings_path=embeddings_path,
+            )
+        except Exception as exc:
+            self.service_errors[selected_model] = str(exc)
+            raise
+
+        self.services[selected_model] = service
+        self.service_errors.pop(selected_model, None)
+        return service
+
+    def status(self, model_name: str | None = None) -> dict[str, Any]:
+        selected_model = self.resolve_model_name(model_name)
+        service = self.get_service(selected_model)
+        payload = service.status()
+        payload["selected_model"] = selected_model
+        payload["default_model_name"] = self.default_model_name
+        payload["models"] = self.list_models()
+        return payload
+
+    def error_payload(self, model_name: str, error: Exception) -> dict[str, Any]:
+        return {
+            "ok": False,
+            "error": str(error),
+            "selected_model": model_name,
+            "default_model_name": self.default_model_name,
+            "models": self.list_models(),
         }

@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>RecallLens</title>
     <link rel="stylesheet" href="/static/style.css" />
+    <link rel="stylesheet" href="/static/model-select.css" />
   </head>
   <body>
     <main class="page">
@@ -22,6 +23,35 @@
       </section>
       {% endif %}
 
+      <section class="panel model-panel">
+        <div class="section-head">
+          <div>
+            <h2>Model</h2>
+            <p>Choose the MobileCLIP checkpoint to use for both indexing and search.</p>
+          </div>
+        </div>
+
+        <div class="model-picker-row">
+          <select id="modelSelect" aria-label="Select MobileCLIP model">
+            {% for model in available_models %}
+            <option
+              value="{{ model.name }}"
+              data-total-images="{{ model.total_images }}"
+              data-checkpoint-exists="{{ 'true' if model.checkpoint_exists else 'false' }}"
+              data-checkpoint-path="{{ model.checkpoint_path }}"
+              data-error="{{ model.error or '' }}"
+              {% if model.name == default_model_name %}selected{% endif %}
+            >
+              {{ model.name }}
+            </option>
+            {% endfor %}
+          </select>
+          <p id="modelHint" class="muted model-hint">
+            Each model keeps its own embedding index. Switch model, switch index — no cosmic soup.
+          </p>
+        </div>
+      </section>
+
       <section class="panel uploader">
         <div class="section-head">
           <div>
@@ -37,14 +67,17 @@
               <span>Select files</span>
               <input id="filePicker" type="file" accept="image/*" multiple />
             </label>
+
             <label class="file-box">
               <span>Select folder</span>
               <input id="folderPicker" type="file" webkitdirectory directory multiple />
             </label>
           </div>
+
           <div class="actions">
             <button id="uploadBtn" type="submit">Upload and index</button>
           </div>
+
           <p id="uploadSummary" class="muted">No files selected yet.</p>
         </form>
       </section>
@@ -79,6 +112,7 @@
             <p id="resultsMeta">No search yet.</p>
           </div>
         </div>
+
         <div id="resultsGrid" class="results-grid empty-state">
           <div class="empty-card">Upload some images, then search with text.</div>
         </div>

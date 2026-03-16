@@ -1,0 +1,35 @@
+select {
+  font: inherit;
+  border: 1px solid var(--border);
+  background: #0f141d;
+  color: var(--text);
+  border-radius: 16px;
+  padding: 14px 16px;
+}
+
+.model-picker-row {
+  display: grid;
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.model-panel {
+  padding: 20px 22px;
+  margin-bottom: 16px;
+}
+
+.model-hint {
+  min-height: 1.5em;
+}
+
+select:focus {
+  outline: 2px solid rgba(122, 215, 255, 0.45);
+  outline-offset: 2px;
+}
+
+@media (max-width: 860px) {
+  .model-picker-row {
+    grid-template-columns: 1fr;
+  }
+}
