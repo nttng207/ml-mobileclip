@@ -40,7 +40,7 @@ function updateUploadSummary() {
   }
 
   const totalMB = files.reduce((sum, file) => sum + file.size, 0) / (1024 * 1024);
-  uploadSummary.textContent = `${files.length} file(s) selected · ${totalMB.toFixed(2)} MB total`;
+  uploadSummary.textContent = `${files.length} file(s) selected \u00b7 ${totalMB.toFixed(2)} MB total`;
 }
 
 function syncModelOptions(models, preferredModel) {
@@ -110,21 +110,13 @@ async function fetchStatus() {
     throw new Error(data.error || "Service is not ready.");
   }
 
-  setStatus(`${data.total_images} indexed · ${data.selected_model}`, "good");
-
-  if (data.recent?.length) {
-    renderResults(data.recent, `Recent images for ${data.selected_model} (${data.recent.length})`);
-  } else {
-    resultsGrid.classList.add("empty-state");
-    resultsGrid.innerHTML = '<div class="empty-card">No images indexed for this model yet.</div>';
-    resultsMeta.textContent = `No images indexed for ${data.selected_model} yet.`;
-  }
+  setStatus(`${data.total_images} indexed \u00b7 ${data.selected_model}`, "good");
 }
 
 filePicker.addEventListener("change", updateUploadSummary);
 folderPicker.addEventListener("change", updateUploadSummary);
 modelSelect?.addEventListener("change", async () => {
-  setStatus("Loading model…", "busy");
+  setStatus("Loading model\u2026", "busy");
   try {
     await fetchStatus();
   } catch (error) {
@@ -137,9 +129,14 @@ modelSelect?.addEventListener("change", async () => {
 uploadForm.addEventListener("submit", async (event) => {
   event.preventDefault();
 
+  const MAX_FILES = 1000;
   const files = getSelectedFiles();
   if (!files.length) {
     alert("Select at least one image first.");
+    return;
+  }
+  if (files.length > MAX_FILES) {
+    alert(`Too many files selected (${files.length}). Maximum is ${MAX_FILES} per upload.`);
     return;
   }
 
@@ -150,7 +147,7 @@ uploadForm.addEventListener("submit", async (event) => {
   }
 
   uploadBtn.disabled = true;
-  setStatus("Uploading…", "busy");
+  setStatus("Uploading\u2026", "busy");
 
   try {
     const response = await fetch("/api/upload", {
@@ -171,7 +168,7 @@ uploadForm.addEventListener("submit", async (event) => {
     const duplicates = data.duplicates?.length || 0;
     const rejected = data.rejected?.length || 0;
 
-    setStatus(`${data.total_images} indexed · ${data.selected_model}`, "good");
+    setStatus(`${data.total_images} indexed \u00b7 ${data.selected_model}`, "good");
     uploadSummary.textContent = `Indexed ${indexed}, duplicates ${duplicates}, rejected ${rejected} in ${data.elapsed_ms.toFixed(1)} ms.`;
 
     if (data.indexed?.length) {
@@ -188,16 +185,13 @@ uploadForm.addEventListener("submit", async (event) => {
   }
 });
 
-searchForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-
-  const query = queryInput.value.trim();
+async function runTextSearch(query) {
   if (!query) {
     alert("Enter a search query first.");
     return;
   }
 
-  setStatus("Searching…", "busy");
+  setStatus("Searching\u2026", "busy");
   const formData = new FormData();
   formData.append("query", query);
   formData.append("top_k", topKInput.value || "24");
@@ -218,11 +212,113 @@ searchForm.addEventListener("submit", async (event) => {
       throw new Error(data.detail || data.error || "Search failed.");
     }
 
-    renderResults(
-      data.results || [],
-      `Found ${data.count} result(s) for “${data.query}” with ${data.selected_model} in ${data.elapsed_ms.toFixed(1)} ms`
-    );
-    setStatus(`Ready · ${data.selected_model}`, "good");
+    const metaText = "Found " + data.count + " result(s) for \"" + data.query + "\" with " + data.selected_model + " in " + data.elapsed_ms.toFixed(1) + " ms";
+    renderResults(data.results || [], metaText);
+    setStatus("Ready \u00b7 " + data.selected_model, "good");
+    window._lastSearchIds = (data.results || []).map(r => r.id);
+    window._lastSearchLabel = "\"" + data.query + "\"";
+    window._lastSearchQuery = data.query;
+  } catch (error) {
+    console.error(error);
+    setStatus("Error", "bad");
+    resultsMeta.textContent = error.message;
+  }
+}
+
+searchForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  runTextSearch(queryInput.value.trim());
+});
+
+// --- Search tabs ---
+document.querySelectorAll(".search-tab").forEach((tab) => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".search-tab").forEach(t => t.classList.remove("active"));
+    tab.classList.add("active");
+    const isImage = tab.dataset.tab === "image";
+    document.getElementById("tabText").hidden = isImage;
+    document.getElementById("tabImage").hidden = !isImage;
+  });
+});
+
+// --- Image search ---
+const imageSearchForm   = document.getElementById("imageSearchForm");
+const imageQueryInput   = document.getElementById("imageQueryInput");
+const imageDropZone     = document.getElementById("imageDropZone");
+const imageDropContent  = document.getElementById("imageDropContent");
+const imagePreviewThumb = document.getElementById("imagePreviewThumb");
+const topKImageInput    = document.getElementById("topKImageInput");
+
+function setImagePreview(file) {
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  imagePreviewThumb.src = url;
+  imagePreviewThumb.hidden = false;
+  imageDropContent.hidden = true;
+}
+
+imageQueryInput.addEventListener("change", () => {
+  if (imageQueryInput.files[0]) setImagePreview(imageQueryInput.files[0]);
+});
+
+imageDropZone.addEventListener("click", () => imageQueryInput.click());
+imageDropZone.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); imageQueryInput.click(); }
+});
+
+imageDropZone.addEventListener("dragover", (e) => {
+  e.preventDefault();
+  imageDropZone.classList.add("drag-over");
+});
+imageDropZone.addEventListener("dragleave", () => imageDropZone.classList.remove("drag-over"));
+imageDropZone.addEventListener("drop", (e) => {
+  e.preventDefault();
+  imageDropZone.classList.remove("drag-over");
+  const file = e.dataTransfer.files[0];
+  if (file && file.type.startsWith("image/")) {
+    // Assign to the file input so the form can read it
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    imageQueryInput.files = dt.files;
+    setImagePreview(file);
+  }
+});
+
+imageSearchForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  const file = imageQueryInput.files[0];
+  if (!file) {
+    alert("Drop or select an image first.");
+    return;
+  }
+
+  setStatus("Searching\u2026", "busy");
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("top_k", topKImageInput.value || "24");
+  formData.append("model_name", getSelectedModel());
+
+  try {
+    const response = await fetch("/api/search-by-image", {
+      method: "POST",
+      body: formData,
+    });
+    const data = await response.json();
+
+    if (data.models) {
+      syncModelOptions(data.models, data.selected_model || getSelectedModel());
+    }
+
+    if (!response.ok) {
+      throw new Error(data.detail || data.error || "Image search failed.");
+    }
+
+    const imgMetaText = 'Found ' + data.count + ' result(s) for image query with ' + data.selected_model + ' in ' + data.elapsed_ms.toFixed(1) + ' ms';
+    renderResults(data.results || [], imgMetaText);
+    setStatus('Ready \u00b7 ' + data.selected_model, 'good');
+    window._lastSearchIds = (data.results || []).map(r => r.id);
+    window._lastSearchLabel = '(image query)';
   } catch (error) {
     console.error(error);
     setStatus("Error", "bad");
@@ -233,7 +329,7 @@ searchForm.addEventListener("submit", async (event) => {
 document.querySelectorAll(".chip").forEach((button) => {
   button.addEventListener("click", () => {
     queryInput.value = button.dataset.query;
-    searchForm.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
+    searchForm.requestSubmit();
   });
 });
 
@@ -267,7 +363,7 @@ function renderResults(items, metaText) {
     card.querySelector(".thumb-button").addEventListener("click", () => {
       previewImage.src = item.image_url;
       previewImage.alt = item.filename;
-      previewCaption.textContent = `${item.filename}${item.score == null ? "" : ` · score ${Number(item.score).toFixed(3)}`}`;
+      previewCaption.textContent = `${item.filename}${item.score == null ? "" : ` \u00b7 score ${Number(item.score).toFixed(3)}`}`;
       previewDialog.showModal();
     });
 
@@ -297,7 +393,7 @@ previewDialog.addEventListener("click", (event) => {
 });
 
 async function bootstrap() {
-  setStatus("Loading…", "busy");
+  setStatus("Loading\u2026", "busy");
   updateModelHint();
 
   try {

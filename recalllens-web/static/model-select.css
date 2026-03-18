@@ -8,10 +8,9 @@ select {
 }
 
 .model-picker-row {
-  display: grid;
-  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
-  gap: 12px;
-  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .model-panel {
@@ -28,8 +27,3 @@ select:focus {
   outline-offset: 2px;
 }
 
-@media (max-width: 860px) {
-  .model-picker-row {
-    grid-template-columns: 1fr;
-  }
-}

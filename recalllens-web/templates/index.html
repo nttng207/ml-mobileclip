@@ -23,85 +23,111 @@
       </section>
       {% endif %}
 
-      <section class="panel model-panel">
-        <div class="section-head">
-          <div>
-            <h2>Model</h2>
-            <p>Choose the MobileCLIP checkpoint to use for both indexing and search.</p>
+      <section class="panel upload-row-panel">
+        <!-- Model column -->
+        <div class="upload-col upload-col-model">
+          <div class="section-head">
+            <div>
+              <h2>Model</h2>
+              <p>Choose the MobileCLIP checkpoint.</p>
+            </div>
+          </div>
+          <div class="model-picker-row">
+            <select id="modelSelect" aria-label="Select MobileCLIP model">
+              {% for model in available_models %}
+              <option
+                value="{{ model.name }}"
+                data-total-images="{{ model.total_images }}"
+                data-checkpoint-exists="{{ 'true' if model.checkpoint_exists else 'false' }}"
+                data-checkpoint-path="{{ model.checkpoint_path }}"
+                data-error="{{ model.error or '' }}"
+                {% if model.name == default_model_name %}selected{% endif %}
+              >
+                {{ model.name }}
+              </option>
+              {% endfor %}
+            </select>
+            <p id="modelHint" class="muted model-hint"></p>
+            <button id="visualizeBtnModel" type="button">Visualize 3D</button>
           </div>
         </div>
 
-        <div class="model-picker-row">
-          <select id="modelSelect" aria-label="Select MobileCLIP model">
-            {% for model in available_models %}
-            <option
-              value="{{ model.name }}"
-              data-total-images="{{ model.total_images }}"
-              data-checkpoint-exists="{{ 'true' if model.checkpoint_exists else 'false' }}"
-              data-checkpoint-path="{{ model.checkpoint_path }}"
-              data-error="{{ model.error or '' }}"
-              {% if model.name == default_model_name %}selected{% endif %}
-            >
-              {{ model.name }}
-            </option>
-            {% endfor %}
-          </select>
-          <p id="modelHint" class="muted model-hint">
-            Each model keeps its own embedding index. Switch model, switch index — no cosmic soup.
-          </p>
+        <!-- Divider -->
+        <div class="upload-col-divider"></div>
+
+        <!-- Upload column -->
+        <div class="upload-col upload-col-upload">
+          <div class="section-head">
+            <div>
+              <h2>Add images</h2>
+              <p>Upload files or a whole folder.</p>
+            </div>
+            <div id="statusPill" class="status-pill">Waiting…</div>
+          </div>
+
+          <form id="uploadForm" class="upload-form">
+            <div class="pickers">
+              <label class="file-box">
+                <span>Select files</span>
+                <input id="filePicker" type="file" accept="image/*" multiple />
+              </label>
+              <label class="file-box">
+                <span>Select folder</span>
+                <input id="folderPicker" type="file" webkitdirectory directory multiple />
+              </label>
+            </div>
+            <div class="actions">
+              <button id="uploadBtn" type="submit">Upload and index</button>
+            </div>
+            <p id="uploadSummary" class="muted">No files selected yet.</p>
+          </form>
         </div>
-      </section>
-
-      <section class="panel uploader">
-        <div class="section-head">
-          <div>
-            <h2>Add images</h2>
-            <p>Upload multiple files or a whole folder from your browser.</p>
-          </div>
-          <div id="statusPill" class="status-pill">Waiting…</div>
-        </div>
-
-        <form id="uploadForm" class="upload-form">
-          <div class="pickers">
-            <label class="file-box">
-              <span>Select files</span>
-              <input id="filePicker" type="file" accept="image/*" multiple />
-            </label>
-
-            <label class="file-box">
-              <span>Select folder</span>
-              <input id="folderPicker" type="file" webkitdirectory directory multiple />
-            </label>
-          </div>
-
-          <div class="actions">
-            <button id="uploadBtn" type="submit">Upload and index</button>
-          </div>
-
-          <p id="uploadSummary" class="muted">No files selected yet.</p>
-        </form>
       </section>
 
       <section class="panel search-panel">
         <div class="section-head">
           <div>
             <h2>Search</h2>
-            <p>Try prompts like <code>black mug</code>, <code>dog in park</code>, or <code>messy desk</code>.</p>
+          </div>
+          <div class="search-tabs" role="tablist">
+            <button class="search-tab active" data-tab="text" role="tab">By text</button>
+            <button class="search-tab" data-tab="image" role="tab">By image</button>
           </div>
         </div>
 
-        <form id="searchForm" class="search-form">
-          <input id="queryInput" type="text" placeholder="black mug on desk" />
-          <input id="topKInput" type="number" min="1" max="{{ max_top_k }}" value="{{ default_top_k }}" />
-          <button type="submit">Search</button>
-        </form>
+        <!-- Text search -->
+        <div id="tabText">
+          <form id="searchForm" class="search-form">
+            <input id="queryInput" type="text" placeholder="black mug on desk" />
+            <input id="topKInput" type="number" min="1" max="{{ max_top_k }}" value="{{ default_top_k }}" />
+            <button type="submit">Search</button>
+          </form>
+          <div class="chips">
+            <button class="chip" data-query="black mug">black mug</button>
+            <button class="chip" data-query="dog in park">dog in park</button>
+            <button class="chip" data-query="messy desk">messy desk</button>
+            <button class="chip" data-query="sunset over water">sunset over water</button>
+            <button class="chip" data-query="food on table">food on table</button>
+          </div>
+        </div>
 
-        <div class="chips">
-          <button class="chip" data-query="black mug">black mug</button>
-          <button class="chip" data-query="dog in park">dog in park</button>
-          <button class="chip" data-query="messy desk">messy desk</button>
-          <button class="chip" data-query="sunset over water">sunset over water</button>
-          <button class="chip" data-query="food on table">food on table</button>
+        <!-- Image search -->
+        <div id="tabImage" hidden>
+          <form id="imageSearchForm" class="image-search-form">
+            <input id="imageQueryInput" type="file" accept="image/*" style="display:none" />
+            <div id="imageDropZone" class="image-drop-zone" role="button" tabindex="0">
+              <div id="imageDropContent">
+                <span class="image-drop-icon">🖼</span>
+                <span>Drop an image here or click to browse</span>
+              </div>
+              <img id="imagePreviewThumb" hidden alt="Query image" />
+            </div>
+            <div class="search-form" style="margin-top:12px">
+              <div></div>
+              <input id="topKImageInput" type="number" min="1" max="{{ max_top_k }}" value="{{ default_top_k }}" />
+              <button type="submit">Search</button>
+            </div>
+          </form>
         </div>
       </section>
 
@@ -111,6 +137,7 @@
             <h2>Results</h2>
             <p id="resultsMeta">No search yet.</p>
           </div>
+          <button id="visualizeBtn" type="button">Visualize 3D</button>
         </div>
 
         <div id="resultsGrid" class="results-grid empty-state">
@@ -118,6 +145,20 @@
         </div>
       </section>
     </main>
+
+    <dialog id="vizDialog" class="viz-dialog">
+      <div class="viz-shell">
+        <div class="viz-header">
+          <span id="vizTitle">Embedding space (3D PCA)</span>
+          <button id="closeVizBtn" class="close-btn" type="button">×</button>
+        </div>
+        <canvas id="vizCanvas"></canvas>
+        <div id="vizTooltip" class="viz-tooltip" hidden>
+          <img id="vizThumb" alt="" />
+          <span id="vizLabel"></span>
+        </div>
+      </div>
+    </dialog>
 
     <dialog id="previewDialog" class="preview-dialog">
       <div class="preview-shell">
@@ -128,5 +169,6 @@
     </dialog>
 
     <script src="/static/app.js"></script>
+    <script src="/static/viz3d.js"></script>
   </body>
 </html>
