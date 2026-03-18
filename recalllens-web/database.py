@@ -89,3 +89,26 @@ def list_recent_images(db_path: Path, limit: int = 24) -> list[dict[str, Any]]:
             (limit,),
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def get_images_by_ids(db_path: Path, ids: list[int]) -> list[dict[str, Any]]:
+    if not ids:
+        return []
+    placeholders = ",".join("?" for _ in ids)
+    with _connect(db_path) as conn:
+        result = conn.execute(
+            f"SELECT * FROM images WHERE id IN ({placeholders})",
+            tuple(ids),
+        ).fetchall()
+    id_order = {v: i for i, v in enumerate(ids)}
+    rows = [dict(r) for r in result]
+    rows.sort(key=lambda r: id_order.get(int(r["id"]), 9999))
+    return rows
+
+
+def list_all_images(db_path: Path) -> list[dict[str, Any]]:
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM images ORDER BY embedding_row ASC",
+        ).fetchall()
+    return [dict(row) for row in rows]

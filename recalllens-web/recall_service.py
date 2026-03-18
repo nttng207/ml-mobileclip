@@ -14,6 +14,7 @@ import numpy as np
 import torch
 from PIL import Image, UnidentifiedImageError
 
+from taxonomy import get_group
 from config import (
     ORIGINALS_DIR,
     PROMPT_TEMPLATE,
@@ -25,9 +26,17 @@ from config import (
     get_model_db_path,
     get_model_embeddings_path,
 )
-from database import count_images, get_image_by_sha1, get_images_by_rows, insert_image, list_recent_images, init_db
+from database import count_images, get_image_by_sha1, get_images_by_ids, get_images_by_rows, insert_image, list_recent_images, list_all_images, init_db
 
 SUPPORTED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+
+
+def _species_prefix(filename: str) -> str:
+    """'acinonyx-jubatus_0_abc.jpg' → 'acinonyx-jubatus'"""
+    import re
+    stem = Path(filename).stem
+    m = re.match(r"^(.+?)_\d", stem)
+    return m.group(1) if m else stem
 
 
 class RecallLensService:
@@ -174,6 +183,46 @@ class RecallLensService:
             "elapsed_ms": elapsed_ms,
         }
 
+    def search_by_image(self, raw: bytes, top_k: int) -> dict[str, Any]:
+        try:
+            image = Image.open(io.BytesIO(raw)).convert("RGB")
+        except Exception as exc:
+            raise ValueError(f"Could not decode image: {exc}") from exc
+
+        if self.embeddings.size == 0:
+            return {
+                "ok": True,
+                "model_name": self.model_name,
+                "query": "(image)",
+                "count": 0,
+                "results": [],
+                "elapsed_ms": 0.0,
+            }
+
+        started = time.perf_counter()
+        image_vec = self._encode_pil(image)
+        scores = self.embeddings @ image_vec
+        top_k = max(1, min(int(top_k), len(scores)))
+        top_rows = np.argsort(-scores)[:top_k].astype(int).tolist()
+        records = get_images_by_rows(self.db_path, top_rows)
+
+        results = []
+        for row in top_rows:
+            record = records.get(int(row))
+            if record is None:
+                continue
+            results.append(self._public_record(record, score=float(scores[row])))
+
+        elapsed_ms = (time.perf_counter() - started) * 1000.0
+        return {
+            "ok": True,
+            "model_name": self.model_name,
+            "query": "(image)",
+            "count": len(results),
+            "results": results,
+            "elapsed_ms": elapsed_ms,
+        }
+
     def search(self, query: str, top_k: int) -> dict[str, Any]:
         query = query.strip()
         if not query:
@@ -212,6 +261,44 @@ class RecallLensService:
             "results": results,
             "elapsed_ms": elapsed_ms,
         }
+
+    def visualize(self, max_points: int = 500) -> dict[str, Any]:
+        records = list_all_images(self.db_path)
+        if not records:
+            return {"ok": True, "model_name": self.model_name, "points": []}
+
+        rows = [r["embedding_row"] for r in records]
+        valid = [(r, row) for r, row in zip(records, rows) if row < self.embeddings.shape[0]]
+        if not valid:
+            return {"ok": True, "model_name": self.model_name, "points": []}
+
+        if len(valid) > max_points:
+            step = len(valid) / max_points
+            valid = [valid[int(i * step)] for i in range(max_points)]
+
+        records_sel, rows_sel = zip(*valid)
+        matrix = self.embeddings[list(rows_sel)].astype(np.float32)
+
+        # PCA to 3D
+        matrix -= matrix.mean(axis=0)
+        _, _, Vt = np.linalg.svd(matrix, full_matrices=False)
+        coords = (matrix @ Vt[:3].T).tolist()
+
+        points = []
+        for record, xyz in zip(records_sel, coords):
+            prefix = _species_prefix(record["filename"])
+            points.append({
+                "id": int(record["id"]),
+                "filename": record["filename"],
+                "thumb_url": f"/{record['thumb_relpath']}",
+                "image_url": f"/{record['original_relpath']}",
+                "group": get_group(prefix),
+                "x": xyz[0],
+                "y": xyz[1],
+                "z": xyz[2],
+            })
+
+        return {"ok": True, "model_name": self.model_name, "points": points}
 
     def status(self) -> dict[str, Any]:
         return {
@@ -310,6 +397,114 @@ class RecallLensManager:
         payload["default_model_name"] = self.default_model_name
         payload["models"] = self.list_models()
         return payload
+
+    def visualize(self, model_name: str | None = None, max_points: int =  500) -> dict[str, Any]:
+        selected_model = self.resolve_model_name(model_name)
+
+        # If the service is already loaded, delegate to it
+        if selected_model in self.services:
+            return self.services[selected_model].visualize(max_points=max_points)
+
+        # Otherwise read embeddings + DB directly (no checkpoint needed)
+        db_path = get_model_db_path(selected_model)
+        embeddings_path = get_model_embeddings_path(selected_model)
+
+        if not db_path.exists() or not embeddings_path.exists():
+            return {"ok": True, "model_name": selected_model, "points": []}
+
+        embeddings = np.load(str(embeddings_path)).astype(np.float32)
+        if embeddings.ndim == 1:
+            embeddings = embeddings.reshape(1, -1)
+
+        records = list_all_images(db_path)
+        if not records:
+            return {"ok": True, "model_name": selected_model, "points": []}
+
+        valid = [(r, r["embedding_row"]) for r in records if r["embedding_row"] < embeddings.shape[0]]
+        if not valid:
+            return {"ok": True, "model_name": selected_model, "points": []}
+
+        if len(valid) > max_points:
+            step = len(valid) / max_points
+            valid = [valid[int(i * step)] for i in range(max_points)]
+
+        records_sel, rows_sel = zip(*valid)
+        matrix = embeddings[list(rows_sel)]
+
+        matrix -= matrix.mean(axis=0)
+        _, _, Vt = np.linalg.svd(matrix, full_matrices=False)
+        coords = (matrix @ Vt[:3].T).tolist()
+
+        points = [
+            {
+                "id": int(record["id"]),
+                "filename": record["filename"],
+                "thumb_url": f"/{record['thumb_relpath']}",
+                "image_url": f"/{record['original_relpath']}",
+                "group": get_group(_species_prefix(record["filename"])),
+                "x": xyz[0],
+                "y": xyz[1],
+                "z": xyz[2],
+            }
+            for record, xyz in zip(records_sel, coords)
+        ]
+        return {"ok": True, "model_name": selected_model, "points": points}
+
+    def visualize_ids(self, ids: list[int], model_name: str | None = None, query: str | None = None) -> dict[str, Any]:
+        selected_model = self.resolve_model_name(model_name)
+        db_path = get_model_db_path(selected_model)
+        embeddings_path = get_model_embeddings_path(selected_model)
+
+        if not db_path.exists() or not embeddings_path.exists() or not ids:
+            return {"ok": True, "model_name": selected_model, "points": [], "query_point": None}
+
+        embeddings = np.load(str(embeddings_path)).astype(np.float32)
+        if embeddings.ndim == 1:
+            embeddings = embeddings.reshape(1, -1)
+
+        records = get_images_by_ids(db_path, ids)
+        valid = [(r, r["embedding_row"]) for r in records if r["embedding_row"] < embeddings.shape[0]]
+        if not valid:
+            return {"ok": True, "model_name": selected_model, "points": [], "query_point": None}
+
+        records_sel, rows_sel = zip(*valid)
+        matrix = embeddings[list(rows_sel)]
+
+        # Optionally encode query text to project into same space
+        query_vec: np.ndarray | None = None
+        if query and selected_model in self.services:
+            try:
+                query_vec = self.services[selected_model]._encode_text(query)
+            except Exception:
+                pass
+
+        if matrix.shape[0] >= 3:
+            mean = matrix.mean(axis=0)
+            centered = matrix - mean
+            _, _, Vt = np.linalg.svd(centered, full_matrices=False)
+            Vt3 = Vt[:3]
+            coords = (centered @ Vt3.T).tolist()
+            # Project query into same PCA space
+            query_point = None
+            if query_vec is not None:
+                qc = (query_vec - mean) @ Vt3.T
+                query_point = {"x": float(qc[0]), "y": float(qc[1]), "z": float(qc[2])}
+        else:
+            coords = [[float(i), 0.0, 0.0] for i in range(matrix.shape[0])]
+            query_point = None
+
+        points = [
+            {
+                "id": int(record["id"]),
+                "filename": record["filename"],
+                "thumb_url": f"/{record['thumb_relpath']}",
+                "image_url": f"/{record['original_relpath']}",
+                "group": get_group(_species_prefix(record["filename"])),
+                "x": xyz[0], "y": xyz[1], "z": xyz[2],
+            }
+            for record, xyz in zip(records_sel, coords)
+        ]
+        return {"ok": True, "model_name": selected_model, "points": points, "query_point": query_point}
 
     def error_payload(self, model_name: str, error: Exception) -> dict[str, Any]:
         return {

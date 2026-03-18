@@ -16,13 +16,14 @@ CHECKPOINTS_DIR = BASE_DIR / "checkpoints/mobileclip"
 LEGACY_DB_PATH = DATA_DIR / "metadata.db"
 LEGACY_EMBEDDINGS_PATH = DATA_DIR / "embeddings.npy"
 
-DEFAULT_MODEL_NAME = os.getenv("MOBILECLIP_MODEL_NAME", "mobileclip_s2").strip() or "mobileclip_s2"
+DEFAULT_MODEL_NAME = os.getenv("MOBILECLIP_MODEL_NAME", "mobileclip_s0").strip() or "mobileclip_s0"
 DEFAULT_MODEL_PATH_ENV = os.getenv("MOBILECLIP_MODEL_PATH", "").strip()
 AVAILABLE_MODELS_ENV = os.getenv("MOBILECLIP_AVAILABLE_MODELS", "").strip()
 
 THUMB_SIZE = (320, 320)
 DEFAULT_TOP_K = 24
 MAX_TOP_K = 96
+MAX_UPLOAD_FILES = 1000
 PROMPT_TEMPLATE = os.getenv("RECALLLENS_PROMPT_TEMPLATE", "a photo of {}")
 
 

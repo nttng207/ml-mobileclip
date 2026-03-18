@@ -1,0 +1,25 @@
+# large / unnecessary files
+recalllens-web/archive/
+recalllens-web/__pycache__/
+recalllens-web/*.egg-info
+
+# repo cruft
+.git/
+*.egg-info/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+.env
+.venv
+venv/
+
+# other apps in the repo
+eval/
+training/
+docs/
+results/
+ios_app/
+mobileclip-radar-web/
+open_clip/
+hf_dataset_example.py

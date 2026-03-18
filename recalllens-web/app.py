@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from pydantic import BaseModel
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from config import DEFAULT_TOP_K, MAX_TOP_K, TEMPLATES_DIR, UPLOADS_DIR, ensure_dirs
+from config import DEFAULT_TOP_K, MAX_TOP_K, MAX_UPLOAD_FILES, TEMPLATES_DIR, UPLOADS_DIR, ensure_dirs
 from recall_service import RecallLensManager
 
 ensure_dirs()
@@ -59,6 +60,12 @@ async def api_upload(
     files: list[UploadFile] = File(...),
     model_name: str = Form(...),
 ):
+    if len(files) > MAX_UPLOAD_FILES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Too many files: {len(files)} submitted, maximum is {MAX_UPLOAD_FILES}.",
+        )
+
     try:
         service = manager.get_service(model_name=model_name)
     except ValueError as exc:
@@ -102,6 +109,59 @@ def api_search(
     result["selected_model"] = service.model_name
     result["models"] = manager.list_models()
     return result
+
+
+@app.post("/api/search-by-image")
+async def api_search_by_image(
+    file: UploadFile = File(...),
+    top_k: int = Form(DEFAULT_TOP_K),
+    model_name: str = Form(...),
+):
+    try:
+        service = manager.get_service(model_name=model_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        selected_model = model_name or manager.default_model_name
+        return JSONResponse(status_code=503, content=manager.error_payload(selected_model, exc))
+
+    raw = await file.read()
+    try:
+        result = service.search_by_image(raw=raw, top_k=min(max(int(top_k), 1), MAX_TOP_K))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    result["selected_model"] = service.model_name
+    result["models"] = manager.list_models()
+    return result
+
+
+class VisualizeIdsRequest(BaseModel):
+    ids: list[int]
+    model_name: str
+    query: str | None = None
+
+
+@app.post("/api/visualize-ids")
+def api_visualize_ids(body: VisualizeIdsRequest):
+    try:
+        return manager.visualize_ids(ids=body.ids, model_name=body.model_name, query=body.query)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        selected_model = body.model_name or manager.default_model_name
+        return JSONResponse(status_code=503, content=manager.error_payload(selected_model, exc))
+
+
+@app.get("/api/visualize")
+def api_visualize(model_name: str | None = Query(default=None)):
+    try:
+        return manager.visualize(model_name=model_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        selected_model = model_name or manager.default_model_name
+        return JSONResponse(status_code=503, content=manager.error_payload(selected_model, exc))
 
 
 @app.get("/health")
